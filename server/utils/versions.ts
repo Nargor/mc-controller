@@ -35,17 +35,21 @@ async function getVanillaVersions() {
 
 async function getFabricVersions() {
   return cached('fabric', async () => {
-    const [gameRes, loaderRes] = await Promise.all([
+    const [gameRes, loaderRes, launcherRes] = await Promise.all([
       fetch('https://meta.fabricmc.net/v2/versions/game'),
       fetch('https://meta.fabricmc.net/v2/versions/loader'),
+      fetch('https://meta.fabricmc.net/v2/versions/installer'),
     ])
     const games   = await gameRes.json()   as any[]
     const loaders = await loaderRes.json() as any[]
+    const launchers = await launcherRes.json() as any[]
     const stableLoaders = loaders.filter((l: any) => l.stable).map((l: any) => l.version).slice(0, 15)
+    const launcherVersions = launchers.filter((item: any) => item.stable).map((item: any) => item.version).slice(0, 15)
     return games.map((g: any) => ({
       mcVersion:     g.version,
       stable:        g.stable,
       loaderVersions: g.stable ? stableLoaders : loaders.map((l: any) => l.version).slice(0, 15),
+      launcherVersions,
     }))
   })
 }

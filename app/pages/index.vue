@@ -19,5 +19,5 @@ const confirmDelete = ref(false)
 const deleteTarget = ref<import('~/stores/servers').Server | null>(null)
 function askDelete(server: import('~/stores/servers').Server) { deleteTarget.value = server; confirmDelete.value = true }
 async function remove() { if (!deleteTarget.value) return; try { await store.deleteServer(deleteTarget.value.id) } finally { deleteTarget.value = null } }
-onMounted(() => store.fetchServers())
+await useAsyncData('servers:list', () => store.fetchServers())
 </script>

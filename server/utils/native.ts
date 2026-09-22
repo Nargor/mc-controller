@@ -1,10 +1,11 @@
 import { ChildProcess, execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import AdmZip from 'adm-zip'
 
-type NativeInstance = { process: ChildProcess; output: EventEmitter }
+type NativeInstance = { process: ChildProcess; output: EventEmitter; timestamps: boolean }
 const instances = new Map<string, NativeInstance>()
 const portableJava = new Map<number, Promise<string>>()
 const logHistory = new Map<string, string[]>()
@@ -29,7 +30,10 @@ export function getNativeLogHistory(id: string): string[] {
   return logHistory.get(id) || []
 }
 
-function emitNativeLog(id: string, output: EventEmitter, line: string): void {
+function emitNativeLog(id: string, output: EventEmitter, line: string, timestamps = false): void {
+  if (timestamps && !/^\[\d{2}:\d{2}:\d{2}\]/.test(line)) {
+    line = `[${new Date().toLocaleTimeString('en-GB', { hour12: false })}] ${line}`
+  }
   const history = logHistory.get(id) || []
   history.push(line)
   if (history.length > 1_000) history.splice(0, history.length - 1_000)
@@ -40,7 +44,8 @@ function emitNativeLog(id: string, output: EventEmitter, line: string): void {
 export async function startNativeServer(server: any): Promise<number | undefined> {
   if (isNativeRunning(server.id)) return instances.get(server.id)?.process.pid
   const dataPath = getServerDataPath(server.id)
-  writeServerProperties(dataPath, server)
+  await writeServerProperties(dataPath, server)
+  await installNativeManagedMods(server, dataPath)
   const requiredJava = await detectRequiredJava(server.mc_version, dataPath)
   const java = await getJavaExecutable(requiredJava)
   const launcher = await getNativeLauncher(server, dataPath, java)
@@ -50,15 +55,16 @@ export async function startNativeServer(server: any): Promise<number | undefined
     // Forge/NeoForge run.bat invokes `java`; make the portable JRE visible to it.
     env: { ...process.env, Path: `${dirname(java)};${process.env.Path || ''}` },
   })
-  instances.set(server.id, { process: child, output })
+  const timestamps = Boolean(server.show_log_timestamps)
+  instances.set(server.id, { process: child, output, timestamps })
 
   logHistory.set(server.id, [])
-  const emit = (chunk: Buffer) => chunk.toString('utf8').split(/\r?\n/).filter(Boolean).forEach(line => emitNativeLog(server.id, output, line))
+  const emit = (chunk: Buffer) => chunk.toString('utf8').split(/\r?\n/).filter(Boolean).forEach(line => emitNativeLog(server.id, output, line, timestamps))
   child.stdout?.on('data', emit)
   child.stderr?.on('data', emit)
-  child.once('error', error => emitNativeLog(server.id, output, `Unable to start Java: ${error.message}`))
+  child.once('error', error => emitNativeLog(server.id, output, `Unable to start Java: ${error.message}`, timestamps))
   child.once('exit', (code) => {
-    emitNativeLog(server.id, output, `Process exited${code === null ? '' : ` with code ${code}`}`)
+    emitNativeLog(server.id, output, `Process exited${code === null ? '' : ` with code ${code}`}`, timestamps)
     instances.delete(server.id)
   })
   return child.pid
@@ -78,7 +84,7 @@ export function sendNativeCommand(id: string, command: string): void {
   const instance = instances.get(id)
   if (!instance || !isNativeRunning(id)) throw createError({ statusCode: 400, statusMessage: 'Server is not running' })
   instance.process.stdin?.write(`${command.trim()}\n`)
-  emitNativeLog(id, instance.output, `> ${command.trim()}`)
+  emitNativeLog(id, instance.output, `> ${command.trim()}`, instance.timestamps)
 }
 
 /** Read actual Java process usage for the local Windows runner. */
@@ -180,24 +186,59 @@ function findJavaExecutable(directory: string): string | null {
   return null
 }
 
-function writeServerProperties(dataPath: string, server: any): void {
+async function writeServerProperties(dataPath: string, server: any): Promise<void> {
   writeFileSync(join(dataPath, 'eula.txt'), 'eula=true\n')
   const properties = [
     `server-port=${server.port}`, `max-players=${server.max_players}`, `motd=${server.motd}`,
     `difficulty=${server.difficulty}`, `gamemode=${server.gamemode}`,
     `white-list=${server.whitelist ? 'true' : 'false'}`, `online-mode=${server.online_mode ? 'true' : 'false'}`,
+    `pvp=${server.pvp ? 'true' : 'false'}`, `level-seed=${server.world_seed || ''}`, `level-type=${server.world_type || 'normal'}`,
+    `view-distance=${server.view_distance || 10}`, `simulation-distance=${server.simulation_distance || 10}`,
+    `enable-command-block=${server.enable_command_blocks ? 'true' : 'false'}`,
+    `player-idle-timeout=${server.player_idle_timeout || 0}`,
+    `prevent-proxy-connections=${server.prevent_proxy_connections ? 'true' : 'false'}`,
+    `op-permission-level=${server.op_permission_level || 4}`, `allow-flight=${server.allow_flight ? 'true' : 'false'}`,
   ].join('\n') + '\n'
   writeFileSync(join(dataPath, 'server.properties'), properties)
+  await writeOpsFile(dataPath, server)
+}
+
+async function writeOpsFile(dataPath: string, server: any): Promise<void> {
+  const names = [...new Set(String(server.op_names || '').split(',').map(name => name.trim()).filter(Boolean))]
+  const ops = await Promise.all(names.map(async name => ({
+    uuid: await resolvePlayerUuid(name, Boolean(server.online_mode)),
+    name,
+    level: Number(server.op_permission_level) || 4,
+    bypassesPlayerLimit: false,
+  })))
+  writeFileSync(join(dataPath, 'ops.json'), JSON.stringify(ops, null, 2))
+}
+
+async function resolvePlayerUuid(name: string, onlineMode: boolean): Promise<string> {
+  if (onlineMode) {
+    try {
+      const response = await fetch(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`)
+      if (response.ok) {
+        const profile = await response.json() as { id?: string }
+        if (profile.id && /^[0-9a-f]{32}$/i.test(profile.id)) {
+          return profile.id.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5')
+        }
+      }
+    } catch { /* Use offline UUID below when profile lookup is unreachable. */ }
+  }
+  const hex = createHash('md5').update(`OfflinePlayer:${name}`).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-3${hex.slice(13, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 async function getNativeLauncher(server: any, dataPath: string, java: string): Promise<{ command: string; args: string[] }> {
-  const memory = `${Math.max(256, Number(server.memory_mb) || 1024)}M`
-  const javaArgs = [`-Xms${memory}`, `-Xmx${memory}`]
+  const initialMemory = `${Math.max(256, Number(server.initial_memory_mb) || 1024)}M`
+  const maximumMemory = `${Math.max(256, Number(server.memory_mb) || 1024)}M`
+  const javaArgs = [`-Xms${initialMemory}`, `-Xmx${maximumMemory}`, ...getNativeJvmOptions(server)]
   let jar: string
   switch (server.type) {
     case 'vanilla': jar = await downloadVanilla(server.mc_version, dataPath); break
     case 'paper': jar = await downloadPaper(server.mc_version, dataPath); break
-    case 'fabric': jar = await downloadFabric(server.mc_version, server.loader_version, dataPath); break
+    case 'fabric': jar = await downloadFabric(server.mc_version, server.loader_version, dataPath, server.fabric_launcher_version); break
     case 'spigot': jar = await downloadBukkit('spigot', server.mc_version, dataPath); break
     case 'bukkit': jar = await downloadBukkit('craftbukkit', server.mc_version, dataPath); break
     case 'forge':
@@ -205,7 +246,36 @@ async function getNativeLauncher(server: any, dataPath: string, java: string): P
     case 'curseforge': return downloadCurseForgeServerPack(server, dataPath, java)
     default: throw createError({ statusCode: 400, statusMessage: 'Unsupported server type' })
   }
-  return { command: java, args: [...javaArgs, '-jar', jar, 'nogui'] }
+  return { command: java, args: [...javaArgs, '-jar', jar, 'nogui', ...splitArguments(server.additional_arguments)] }
+}
+
+function getNativeJvmOptions(server: any): string[] {
+  const options = [
+    ...splitArguments(server.jvm_options),
+    ...splitArguments(server.jvm_xx_options).map((option) => option.startsWith('-XX:') ? option : `-XX:${option}`),
+    ...String(server.system_properties || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean).map(value => value.startsWith('-D') ? value : `-D${value}`),
+    `-Duser.timezone=${server.timezone || 'UTC'}`,
+  ]
+  if (server.aikar_flags) {
+    options.push(
+      '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:MaxGCPauseMillis=200',
+      '-XX:+UnlockExperimentalVMOptions', '-XX:+DisableExplicitGC', '-XX:+AlwaysPreTouch',
+      '-XX:G1NewSizePercent=30', '-XX:G1MaxNewSizePercent=40', '-XX:G1HeapRegionSize=8M',
+      '-XX:G1ReservePercent=20', '-XX:G1HeapWastePercent=5', '-XX:G1MixedGCCountTarget=4',
+      '-XX:InitiatingHeapOccupancyPercent=15', '-XX:G1MixedGCLiveThresholdPercent=90',
+      '-XX:G1RSetUpdatingPauseTimePercent=5', '-XX:SurvivorRatio=32', '-XX:+PerfDisableSharedMem',
+      '-XX:MaxTenuringThreshold=1',
+    )
+  }
+  if (server.jmx_enabled) options.push('-Dcom.sun.management.jmxremote')
+  return [...new Set(options)]
+}
+
+/** Supports one option per line as well as simple quoted values. */
+function splitArguments(value: unknown): string[] {
+  const input = String(value || '').trim()
+  if (!input) return []
+  return input.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map(item => item.replace(/^(?:"|')|(?:"|')$/g, '')) || []
 }
 
 async function downloadVanilla(version: string, dir: string): Promise<string> {
@@ -229,12 +299,91 @@ async function downloadPaper(version: string, dir: string): Promise<string> {
   return target
 }
 
-async function downloadFabric(version: string, requestedLoader: string | null, dir: string): Promise<string> {
+async function downloadFabric(version: string, requestedLoader: string | null, dir: string, requestedLauncher?: string | null): Promise<string> {
   const loader = requestedLoader || (await fetchJson('https://meta.fabricmc.net/v2/versions/loader')).find((item: any) => item.stable)?.version
   if (!loader) throw createError({ statusCode: 502, statusMessage: 'Could not find a Fabric loader version' })
-  const target = join(dir, `fabric-${version}-${loader}.jar`)
-  if (!existsSync(target)) await download(`https://meta.fabricmc.net/v2/versions/loader/${version}/${loader}/1.0.1/server/jar`, target)
+  const launcher = requestedLauncher || '1.0.1'
+  const target = join(dir, `fabric-${version}-${loader}-${launcher}.jar`)
+  if (!existsSync(target)) await download(`https://meta.fabricmc.net/v2/versions/loader/${version}/${loader}/${launcher}/server/jar`, target)
   return target
+}
+
+/** Native development uses the same Modrinth/CurseForge declarations as Docker. */
+async function installNativeManagedMods(server: any, dataPath: string): Promise<void> {
+  const modrinth = splitList(server.modrinth_projects)
+  const curseforge = splitList(server.curseforge_files)
+  if (!modrinth.length && !curseforge.length) return
+  const destination = join(dataPath, ['fabric', 'forge', 'neoforge', 'curseforge'].includes(server.type) ? 'mods' : 'plugins')
+  mkdirSync(destination, { recursive: true })
+  const installed = new Set<string>()
+  for (const entry of modrinth) await downloadModrinthProject(entry, server, destination, installed)
+  if (curseforge.length) await downloadCurseForgeFiles(curseforge, server, destination)
+}
+
+function splitList(value: unknown): string[] {
+  return String(value || '').split(/[\n,]/).map(item => item.trim()).filter(item => item && !item.startsWith('#'))
+}
+
+async function downloadModrinthProject(entry: string, server: any, destination: string, installed: Set<string>): Promise<void> {
+  const optionalProject = entry.endsWith('?')
+  const raw = entry.replace(/\?$/, '')
+  const parts = raw.split(':')
+  const prefixes = ['fabric', 'forge', 'neoforge', 'paper', 'spigot', 'bukkit', 'datapack', 'resourcepack']
+  const project = prefixes.includes(parts[0].toLowerCase()) ? parts[1] : parts[0]
+  if (!project || installed.has(project)) return
+  installed.add(project)
+  const loader = prefixes.includes(parts[0].toLowerCase()) ? parts[0] : nativeModrinthLoader(server.type)
+  const params = new URLSearchParams({ game_versions: JSON.stringify([server.mc_version]) })
+  if (loader) params.set('loaders', JSON.stringify([loader]))
+  const versions = await fetchJson(`https://api.modrinth.com/v2/project/${encodeURIComponent(project)}/version?${params}`) as any[]
+  const permitted = server.modrinth_default_version_type === 'alpha' ? ['release', 'beta', 'alpha']
+    : server.modrinth_default_version_type === 'beta' ? ['release', 'beta'] : ['release']
+  const version = versions.find(item => permitted.includes(item.version_type))
+  if (!version) {
+    if (optionalProject) return
+    throw createError({ statusCode: 400, statusMessage: `Modrinth project ${project} has no compatible version` })
+  }
+  const file = version.files?.find((item: any) => item.primary) || version.files?.[0]
+  if (!file?.url) throw createError({ statusCode: 400, statusMessage: `Modrinth project ${project} has no downloadable file` })
+  await download(file.url, join(destination, file.filename || `${project}.jar`))
+
+  const mode = server.modrinth_download_dependencies || 'none'
+  if (mode !== 'none') {
+    const allowed = mode === 'optional' ? ['required', 'optional'] : ['required']
+    for (const dependency of version.dependencies || []) {
+      if (dependency.project_id && allowed.includes(dependency.dependency_type)) {
+        await downloadModrinthProject(dependency.project_id, server, destination, installed)
+      }
+    }
+  }
+}
+
+function nativeModrinthLoader(type: string): string | null {
+  if (type === 'neoforge') return 'neoforge'
+  if (['fabric', 'forge', 'paper', 'spigot', 'bukkit'].includes(type)) return type
+  return null
+}
+
+async function downloadCurseForgeFiles(entries: string[], server: any, destination: string): Promise<void> {
+  const apiKey = useRuntimeConfig().curseforgeApiKey
+  if (!apiKey) throw createError({ statusCode: 400, statusMessage: 'Set CURSEFORGE_API_KEY before downloading CurseForge files' })
+  const headers = { 'x-api-key': apiKey }
+  for (const entry of entries) {
+    const urlProject = entry.match(/curseforge\.com\/minecraft\/mc-mods\/([^/]+)/i)?.[1]
+    const urlFile = entry.match(/\/files\/(\d+)$/)?.[1]
+    const pair = entry.match(/^(.+):(\d+)$/)
+    const project = urlProject || pair?.[1] || entry
+    const pinnedFileId = urlFile || pair?.[2]
+    let mod: any
+    if (/^\d+$/.test(project)) mod = await fetchJson(`https://api.curseforge.com/v1/mods/${project}`, headers).then((result: any) => result.data)
+    else mod = (await fetchJson(`https://api.curseforge.com/v1/mods/search?gameId=432&slug=${encodeURIComponent(project)}`, headers)).data?.[0]
+    if (!mod) throw createError({ statusCode: 404, statusMessage: `CurseForge project ${project} was not found` })
+    const fileId = pinnedFileId || mod.latestFilesIndexes?.find((item: any) => item.gameVersion === server.mc_version)?.fileId || mod.latestFilesIndexes?.[0]?.fileId
+    if (!fileId) throw createError({ statusCode: 400, statusMessage: `CurseForge project ${project} has no compatible file` })
+    const file = (await fetchJson(`https://api.curseforge.com/v1/mods/${mod.id}/files/${fileId}`, headers)).data
+    if (!file?.downloadUrl) throw createError({ statusCode: 502, statusMessage: `CurseForge did not provide a download for ${project}` })
+    await download(file.downloadUrl, join(destination, file.fileName || `${mod.id}-${fileId}.jar`), headers)
+  }
 }
 
 async function downloadBukkit(kind: 'spigot' | 'craftbukkit', version: string, dir: string): Promise<string> {

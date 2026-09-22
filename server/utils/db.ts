@@ -41,6 +41,7 @@ export async function initDb(): Promise<void> {
       type TEXT NOT NULL,
       mc_version TEXT NOT NULL,
       loader_version TEXT,
+      fabric_launcher_version TEXT DEFAULT '',
       modpack_id TEXT,
       modpack_name TEXT,
       port INTEGER UNIQUE NOT NULL,
@@ -51,12 +52,72 @@ export async function initDb(): Promise<void> {
       gamemode TEXT DEFAULT 'survival',
       whitelist INTEGER DEFAULT 0,
       online_mode INTEGER DEFAULT 1,
+      pvp INTEGER DEFAULT 1,
+      world_seed TEXT DEFAULT '',
+      world_type TEXT DEFAULT 'normal',
+      view_distance INTEGER DEFAULT 10,
+      simulation_distance INTEGER DEFAULT 10,
+      enable_command_blocks INTEGER DEFAULT 0,
+      player_idle_timeout INTEGER DEFAULT 0,
+      prevent_proxy_connections INTEGER DEFAULT 0,
+      op_names TEXT DEFAULT '',
+      op_permission_level INTEGER DEFAULT 4,
+      allow_flight INTEGER DEFAULT 0,
+      initial_memory_mb INTEGER DEFAULT 1024,
+      cpu_limit REAL DEFAULT 0,
+      cpu_reservation REAL DEFAULT 0,
+      memory_reservation_mb INTEGER DEFAULT 0,
+      linux_uid INTEGER DEFAULT 1000,
+      linux_gid INTEGER DEFAULT 1000,
+      aikar_flags INTEGER DEFAULT 1,
+      jmx_enabled INTEGER DEFAULT 0,
+      jvm_options TEXT DEFAULT '',
+      jvm_xx_options TEXT DEFAULT '',
+      system_properties TEXT DEFAULT '',
+      additional_arguments TEXT DEFAULT '',
+      timezone TEXT DEFAULT 'UTC',
+      auto_stop_enabled INTEGER DEFAULT 0,
+      auto_pause_enabled INTEGER DEFAULT 0,
+      initial_timeout_seconds INTEGER DEFAULT 0,
+      established_timeout_seconds INTEGER DEFAULT 0,
+      reconnect_interface TEXT DEFAULT 'eth0',
+      rolling_logs INTEGER DEFAULT 0,
+      show_log_timestamps INTEGER DEFAULT 1,
+      curseforge_files TEXT DEFAULT '',
+      modrinth_projects TEXT DEFAULT '',
+      modrinth_download_dependencies TEXT DEFAULT 'none',
+      modrinth_default_version_type TEXT DEFAULT 'release',
       status TEXT DEFAULT 'stopped',
       container_id TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `)
+
+  // Existing installations predate these settings. SQLite cannot add several
+  // columns in one statement, so run idempotent migrations after table setup.
+  const additions: Array<[string, string]> = [
+    ['fabric_launcher_version', "TEXT DEFAULT ''"],
+    ['pvp', 'INTEGER DEFAULT 1'], ['world_seed', "TEXT DEFAULT ''"], ['world_type', "TEXT DEFAULT 'normal'"],
+    ['view_distance', 'INTEGER DEFAULT 10'], ['simulation_distance', 'INTEGER DEFAULT 10'],
+    ['enable_command_blocks', 'INTEGER DEFAULT 0'], ['player_idle_timeout', 'INTEGER DEFAULT 0'],
+    ['prevent_proxy_connections', 'INTEGER DEFAULT 0'], ['op_names', "TEXT DEFAULT ''"],
+    ['op_permission_level', 'INTEGER DEFAULT 4'], ['allow_flight', 'INTEGER DEFAULT 0'],
+    ['initial_memory_mb', 'INTEGER DEFAULT 1024'], ['cpu_limit', 'REAL DEFAULT 0'], ['cpu_reservation', 'REAL DEFAULT 0'],
+    ['memory_reservation_mb', 'INTEGER DEFAULT 0'], ['linux_uid', 'INTEGER DEFAULT 1000'], ['linux_gid', 'INTEGER DEFAULT 1000'],
+    ['aikar_flags', 'INTEGER DEFAULT 1'], ['jmx_enabled', 'INTEGER DEFAULT 0'], ['jvm_options', "TEXT DEFAULT ''"],
+    ['jvm_xx_options', "TEXT DEFAULT ''"], ['system_properties', "TEXT DEFAULT ''"], ['additional_arguments', "TEXT DEFAULT ''"],
+    ['timezone', "TEXT DEFAULT 'UTC'"], ['auto_stop_enabled', 'INTEGER DEFAULT 0'], ['auto_pause_enabled', 'INTEGER DEFAULT 0'],
+    ['initial_timeout_seconds', 'INTEGER DEFAULT 0'], ['established_timeout_seconds', 'INTEGER DEFAULT 0'],
+    ['reconnect_interface', "TEXT DEFAULT 'eth0'"], ['rolling_logs', 'INTEGER DEFAULT 0'], ['show_log_timestamps', 'INTEGER DEFAULT 1'],
+    ['curseforge_files', "TEXT DEFAULT ''"], ['modrinth_projects', "TEXT DEFAULT ''"],
+    ['modrinth_download_dependencies', "TEXT DEFAULT 'none'"], ['modrinth_default_version_type', "TEXT DEFAULT 'release'"],
+  ]
+  const columns = await db.execute('PRAGMA table_info(servers)')
+  const existing = new Set((columns.rows as any[]).map(row => row.name))
+  for (const [name, definition] of additions) {
+    if (!existing.has(name)) await db.execute(`ALTER TABLE servers ADD COLUMN ${name} ${definition}`)
+  }
 }
 
 export async function dbQuery<T = any>(sql: string, args: any[] = []): Promise<T[]> {

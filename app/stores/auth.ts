@@ -5,8 +5,8 @@ interface User { id: string; username: string; role: string }
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
 
-  async function fetchMe(): Promise<boolean> {
-    try { user.value = await $fetch('/api/auth/me') as User; return true }
+  async function fetchMe(fetcher: typeof $fetch = $fetch): Promise<boolean> {
+    try { user.value = await fetcher('/api/auth/me') as User; return true }
     catch { user.value = null; return false }
   }
 

@@ -70,7 +70,9 @@ export default defineNuxtConfig({
     // the deployment default. Override explicitly with MC_RUNTIME if needed.
     mcRuntime:       process.env.NUXT_MC_RUNTIME || process.env.MC_RUNTIME || (process.env.NODE_ENV === 'production' ? 'docker' : 'native'),
     // Public (accessible on client — nothing sensitive)
-    public: {},
+    public: {
+      mcRuntime: process.env.NUXT_MC_RUNTIME || process.env.MC_RUNTIME || (process.env.NODE_ENV === 'production' ? 'docker' : 'native'),
+    },
   },
 
   app: {

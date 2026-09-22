@@ -13,7 +13,7 @@ export default defineWebSocketHandler({
       return
     }
 
-    const server = await dbQueryOne<any>('SELECT container_id FROM servers WHERE id = ?', [id])
+    const server = await dbQueryOne<any>('SELECT container_id, show_log_timestamps FROM servers WHERE id = ?', [id])
     if (!server?.container_id) {
       peer.send(JSON.stringify({ type: 'error', data: 'Server not started' }))
       peer.close(); return
@@ -23,6 +23,7 @@ export default defineWebSocketHandler({
     try {
       const logStream = await getDocker().getContainer(server.container_id).logs({
         follow: true, stdout: true, stderr: true, tail: 150,
+        timestamps: Boolean(server.show_log_timestamps),
       })
 
       logStream.on('data', (chunk: Buffer) => {

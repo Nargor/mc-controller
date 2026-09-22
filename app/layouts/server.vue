@@ -20,8 +20,14 @@
       <aside class="w-52 bg-dark-900 border-r border-dark-700 flex flex-col py-3 flex-shrink-0">
         <nav class="flex flex-col gap-0.5 px-2">
           <SidebarLink :to="`/servers/${id}`" icon="🏠">ภาพรวม</SidebarLink>
+          <SidebarLink :to="`/servers/${id}/type`" icon="🧱"
+            :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Server type</SidebarLink>
           <SidebarLink :to="`/servers/${id}/settings`" icon="⚙️"
             :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">ตั้งค่า</SidebarLink>
+          <SidebarLink :to="`/servers/${id}/resources`" icon="📊"
+            :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Resources</SidebarLink>
+          <SidebarLink :to="`/servers/${id}/mods`" icon="🧩"
+            :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Mods</SidebarLink>
           <SidebarLink :to="`/servers/${id}/console`" icon="💻"
             :disabled="server?.status !== 'running'" disabled-tooltip="เซิร์ฟเวอร์ต้องทำงานอยู่">คอนโซล</SidebarLink>
           <SidebarLink :to="`/servers/${id}/files`" icon="📁">จัดการไฟล์</SidebarLink>
@@ -37,5 +43,7 @@ const auth  = useAuthStore()
 const store = useServersStore()
 const id     = computed(() => route.params.id as string)
 const server = computed(() => store.servers.find(s => s.id === id.value))
-onMounted(async () => { if (!store.servers.length) await store.fetchServers() })
+// A reactive key means Nuxt refetches when navigating between server IDs,
+// while SSR renders the requested URL with its session cookie on first load.
+await useAsyncData(() => `server:${id.value}`, () => store.fetchServer(id.value), { watch: [id] })
 </script>
