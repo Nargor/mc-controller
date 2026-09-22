@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  backend:
+    image: ${DOCKER_HUB_USERNAME}/mc-controller-backend:latest
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/data/mc-controller.db
+      - MC_DATA_PATH=/data/servers
+      - PORT_RANGE_START=${PORT_RANGE_START:-25565}
+      - PORT_RANGE_END=${PORT_RANGE_END:-25600}
+      - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
+      - JWT_SECRET=${JWT_SECRET}
+      - DOCKER_SOCKET=/var/run/docker.sock
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
+    volumes:
+      - mc_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "3001:3001"
+      - "25565-25600:25565-25600"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/setup/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    image: ${DOCKER_HUB_USERNAME}/mc-controller-frontend:latest
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mc_data:
+    driver: local
