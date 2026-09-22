@@ -6,6 +6,7 @@ export default defineWebSocketHandler({
     if (!id) { peer.close(1008, 'Invalid ID'); return }
 
     if (useNativeRuntime()) {
+      for (const line of getNativeLogHistory(id)) peer.send(JSON.stringify({ type: 'log', data: line }))
       const cleanup = subscribeNativeLogs(id, (line) => peer.send(JSON.stringify({ type: 'log', data: line })))
       if (!cleanup) { peer.send(JSON.stringify({ type: 'error', data: 'Server is not running' })); peer.close(); return }
       ;(peer as any)._cleanup = cleanup

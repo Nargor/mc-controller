@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'node:child_process'
+import { ChildProcess, execFile, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip'
 type NativeInstance = { process: ChildProcess; output: EventEmitter }
 const instances = new Map<string, NativeInstance>()
 const portableJava = new Map<number, Promise<string>>()
+const logHistory = new Map<string, string[]>()
 
 export function useNativeRuntime(): boolean {
   return useRuntimeConfig().mcRuntime === 'native'
@@ -24,6 +25,18 @@ export function subscribeNativeLogs(id: string, listener: (line: string) => void
   return () => instance.output.off('line', listener)
 }
 
+export function getNativeLogHistory(id: string): string[] {
+  return logHistory.get(id) || []
+}
+
+function emitNativeLog(id: string, output: EventEmitter, line: string): void {
+  const history = logHistory.get(id) || []
+  history.push(line)
+  if (history.length > 1_000) history.splice(0, history.length - 1_000)
+  logHistory.set(id, history)
+  output.emit('line', line)
+}
+
 export async function startNativeServer(server: any): Promise<number | undefined> {
   if (isNativeRunning(server.id)) return instances.get(server.id)?.process.pid
   const dataPath = getServerDataPath(server.id)
@@ -39,12 +52,13 @@ export async function startNativeServer(server: any): Promise<number | undefined
   })
   instances.set(server.id, { process: child, output })
 
-  const emit = (chunk: Buffer) => chunk.toString('utf8').split(/\r?\n/).filter(Boolean).forEach(line => output.emit('line', line))
+  logHistory.set(server.id, [])
+  const emit = (chunk: Buffer) => chunk.toString('utf8').split(/\r?\n/).filter(Boolean).forEach(line => emitNativeLog(server.id, output, line))
   child.stdout?.on('data', emit)
   child.stderr?.on('data', emit)
-  child.once('error', error => output.emit('line', `Unable to start Java: ${error.message}`))
+  child.once('error', error => emitNativeLog(server.id, output, `Unable to start Java: ${error.message}`))
   child.once('exit', (code) => {
-    output.emit('line', `Process exited${code === null ? '' : ` with code ${code}`}`)
+    emitNativeLog(server.id, output, `Process exited${code === null ? '' : ` with code ${code}`}`)
     instances.delete(server.id)
   })
   return child.pid
@@ -64,6 +78,38 @@ export function sendNativeCommand(id: string, command: string): void {
   const instance = instances.get(id)
   if (!instance || !isNativeRunning(id)) throw createError({ statusCode: 400, statusMessage: 'Server is not running' })
   instance.process.stdin?.write(`${command.trim()}\n`)
+  emitNativeLog(id, instance.output, `> ${command.trim()}`)
+}
+
+/** Read actual Java process usage for the local Windows runner. */
+export async function getNativeStats(id: string): Promise<{ cpuPercent: number; memoryMB: number }> {
+  const pid = instances.get(id)?.process.pid
+  if (!pid || !isNativeRunning(id)) return { cpuPercent: 0, memoryMB: 0 }
+  if (process.platform !== 'win32') return { cpuPercent: 0, memoryMB: 0 }
+
+  // Forge/NeoForge starts through cmd/run.bat, so include every descendant of
+  // the launcher process rather than reporting the tiny cmd.exe wrapper only.
+  const script = [
+    `$ids = [System.Collections.Generic.List[int]]::new(); $ids.Add(${Number(pid)})`,
+    '$changed = $true',
+    'while ($changed) { $changed = $false; Get-CimInstance Win32_Process | Where-Object { $ids -contains [int]$_.ParentProcessId } | ForEach-Object { if (-not ($ids -contains [int]$_.ProcessId)) { $ids.Add([int]$_.ProcessId); $changed = $true } } }',
+    '$items = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $ids -contains [int]$_.IDProcess }',
+    '$cpu = [double](($items | Measure-Object -Property PercentProcessorTime -Sum).Sum); $memory = [double](($items | Measure-Object -Property WorkingSet -Sum).Sum)',
+    '[PSCustomObject]@{ cpu = $cpu; memory = $memory } | ConvertTo-Json -Compress',
+  ].join('; ')
+
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 5_000 }, (error, stdout) => error ? reject(error) : resolve(stdout))
+    })
+    const stats = JSON.parse(output.trim() || '{}')
+    return {
+      cpuPercent: Math.round((Number(stats.cpu) || 0) * 10) / 10,
+      memoryMB: Math.round((Number(stats.memory) || 0) / (1024 * 1024)),
+    }
+  } catch {
+    return { cpuPercent: 0, memoryMB: 0 }
+  }
 }
 
 async function getJavaExecutable(major: number): Promise<string> {
