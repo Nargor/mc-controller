@@ -1,9 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  // Nuxt 4 compatibility mode
-  future: {
-    compatibilityVersion: 4,
-  },
   compatibilityDate: '2024-11-01',
 
   devtools: { enabled: true },
@@ -63,6 +59,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     databasePath:    process.env.DATABASE_PATH    || './data/mc-controller.db',
     mcDataPath:      process.env.MC_DATA_PATH     || './data/servers',
+    // Path as seen by the Docker daemon. Set this when /data is a bind mount.
+    mcDataHostPath:  process.env.MC_DATA_HOST_PATH || '',
     portRangeStart:  parseInt(process.env.PORT_RANGE_START  || '25565'),
     portRangeEnd:    parseInt(process.env.PORT_RANGE_END    || '25600'),
     curseforgeApiKey: process.env.CURSEFORGE_API_KEY || '',

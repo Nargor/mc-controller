@@ -128,5 +128,6 @@ async function getCurseForgeModpacks(query: string) {
     summary:       m.summary || '',
     logoUrl:       m.logo?.url || '',
     downloadCount: m.downloadCount || 0,
+    mcVersion:     m.latestFilesIndexes?.[0]?.gameVersion || '',
   }))
 }

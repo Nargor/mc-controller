@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
+import { safeServerPath } from '../../../../utils/files'
 
 export default defineEventHandler(async (event) => {
   const id   = getRouterParam(event, 'id')!
@@ -10,22 +11,15 @@ export default defineEventHandler(async (event) => {
   const files   = form.getAll('files') as File[]
   if (!files.length) throw createError({ statusCode: 400, statusMessage: 'No files provided' })
 
-  const destDir = safeJoin(base, destRel)
+  const destDir = safeServerPath(base, destRel)
   mkdirSync(destDir, { recursive: true })
 
   const uploaded: string[] = []
   for (const file of files) {
-    const name = (file as any).name || 'upload'
+    const name = String((file as any).name || 'upload').replace(/[\\/]/g, '_')
     const buf  = Buffer.from(await file.arrayBuffer())
     writeFileSync(join(destDir, name), buf)
     uploaded.push(name)
   }
   return { success: true, uploaded }
 })
-
-function safeJoin(base: string, rel: string): string {
-  const safe = rel.replace(/\.\./g, '').replace(/^\/+/, '')
-  const out  = resolve(join(base, safe))
-  if (!out.startsWith(base)) throw createError({ statusCode: 400, statusMessage: 'Access denied' })
-  return out
-}

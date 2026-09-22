@@ -1,6 +1,7 @@
 import AdmZip from 'adm-zip'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { basename, join, resolve } from 'path'
+import { safeServerPath } from '../../../../utils/files'
 
 export default defineEventHandler(async (event) => {
   const id   = getRouterParam(event, 'id')!
@@ -12,7 +13,7 @@ export default defineEventHandler(async (event) => {
 
   // Single file → direct download
   if (paths.length === 1) {
-    const file = safeJoin(base, paths[0])
+    const file = safeServerPath(base, paths[0])
     if (existsSync(file) && statSync(file).isFile()) {
       setHeader(event, 'Content-Disposition', `attachment; filename="${basename(file)}"`)
       setHeader(event, 'Content-Type', 'application/octet-stream')
@@ -24,7 +25,7 @@ export default defineEventHandler(async (event) => {
   const zip = new AdmZip()
   for (const p of paths) {
     try {
-      const target = safeJoin(base, p)
+      const target = safeServerPath(base, p)
       if (!existsSync(target)) continue
       if (statSync(target).isDirectory()) zip.addLocalFolder(target, basename(target))
       else zip.addLocalFile(target)
@@ -34,10 +35,3 @@ export default defineEventHandler(async (event) => {
   setHeader(event, 'Content-Disposition', 'attachment; filename="download.zip"')
   return zip.toBuffer()
 })
-
-function safeJoin(base: string, rel: string): string {
-  const safe = rel.replace(/\.\./g, '').replace(/^\/+/, '')
-  const out  = resolve(join(base, safe))
-  if (!out.startsWith(base)) throw createError({ statusCode: 400, statusMessage: 'Access denied' })
-  return out
-}

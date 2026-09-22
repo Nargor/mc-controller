@@ -11,25 +11,25 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "bcryptjs": "^2.4.3",
-    "dockerode": "^4.0.2",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.0",
+    "bcryptjs": "^2.4.3",
+    "dockerode": "^4.0.2",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "nuxt": "^3.13.2",
-    "@pinia/nuxt": "^0.5.5",
-    "pinia": "^2.2.6",
-    "@vueuse/nuxt": "^11.3.0",
-    "@vueuse/core": "^11.3.0",
-    "@nuxtjs/tailwindcss": "^6.12.2",
-    "@types/dockerode": "^3.3.32",
-    "@types/bcryptjs": "^2.4.6",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@pinia/nuxt": "^1.0.2",
     "@types/adm-zip": "^0.5.5",
     "@types/archiver": "^6.0.3",
-    "@types/uuid": "^10.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/dockerode": "^3.3.32",
     "@types/node": "^22.7.5",
+    "@types/uuid": "^10.0.0",
+    "@vueuse/core": "^15.0.0",
+    "@vueuse/nuxt": "^15.0.0",
+    "nuxt": "^4.5.2",
+    "pinia": "^4.0.3",
     "typescript": "^5.6.3"
   }
 }

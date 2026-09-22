@@ -2,6 +2,10 @@
 export default defineEventHandler(async (event) => {
   const path = event.path || ''
 
+  // Nitro middleware also receives page/asset requests. Protect API routes only;
+  // the client route middleware redirects unauthenticated visitors to /login.
+  if (!path.startsWith('/api/')) return
+
   // Public — no auth needed
   const publicPaths = ['/api/setup', '/api/setup/status', '/api/auth/login']
   if (publicPaths.some(p => path === p || path.startsWith(p + '/'))) return

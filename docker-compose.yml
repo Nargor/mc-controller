@@ -1,44 +1,30 @@
 version: '3.9'
 
 services:
-  backend:
+  mc-controller:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DATABASE_PATH=/data/mc-controller.db
       - MC_DATA_PATH=/data/servers
+      # Must be the same host path mounted at /data below: Docker resolves child mounts on the host.
+      - MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH:-./data}
       - PORT_RANGE_START=25565
       - PORT_RANGE_END=25600
       - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
       - JWT_SECRET=${JWT_SECRET:-dev_secret_change_me}
       - DOCKER_SOCKET=/var/run/docker.sock
-      - FRONTEND_URL=http://localhost:3000
     volumes:
-      - mc_data:/data
+      - ${MC_DATA_HOST_PATH:-./data}:/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "3001:3001"
+      - "3000:3000"
       - "25565-25600:25565-25600"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/setup/status"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/setup/status"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
-
-volumes:
-  mc_data:
-    driver: local

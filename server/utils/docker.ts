@@ -31,6 +31,13 @@ export function getServerDataPath(serverId: string): string {
   return dir
 }
 
+/** The Docker daemon resolves bind sources on its host, not inside this app container. */
+export function getServerHostDataPath(serverId: string): string {
+  const config = useRuntimeConfig()
+  const base = config.mcDataHostPath || config.mcDataPath || process.env.MC_DATA_PATH || './data/servers'
+  return resolve(join(base, serverId))
+}
+
 type McServerType = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'paper' | 'spigot' | 'bukkit' | 'curseforge'
 
 const TYPE_MAP: Record<McServerType, string> = {
@@ -46,7 +53,8 @@ const TYPE_MAP: Record<McServerType, string> = {
 
 export async function createServerContainer(server: any): Promise<Docker.Container> {
   const d = getDocker()
-  const dataPath = getServerDataPath(server.id)
+  getServerDataPath(server.id)
+  const hostDataPath = getServerHostDataPath(server.id)
   const config = useRuntimeConfig()
 
   const envVars: string[] = [
@@ -84,7 +92,7 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
     ExposedPorts: { '25565/tcp': {}, '25575/tcp': {} },
     HostConfig: {
       PortBindings: { '25565/tcp': [{ HostPort: server.port.toString() }] },
-      Binds: [`${dataPath}:/data`],
+      Binds: [`${hostDataPath}:/data`],
       Memory: Math.max(256, Number(server.memory_mb) || 1024) * 1024 * 1024,
       RestartPolicy: { Name: 'unless-stopped' },
     },
