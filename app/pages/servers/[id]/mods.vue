@@ -1,7 +1,9 @@
 <template>
   <div v-if="server" class="max-w-4xl mx-auto p-5 sm:p-8">
     <h1 class="text-2xl font-bold text-white">Mods</h1>
-    <p class="text-dark-400 text-sm mt-1">จัดการตัวโหลด Fabric และรายการ mod ที่ให้ดาวน์โหลดก่อนเริ่มเซิร์ฟเวอร์</p>
+    <p class="text-dark-400 text-sm mt-1">ค้นหา ติดตั้ง และตั้งค่าการดาวน์โหลด mod</p>
+
+    <div class="mt-6"><MarketplaceManager kind="mod" /></div>
 
     <form class="mt-6 space-y-5" @submit.prevent="save">
       <fieldset :disabled="!editable" class="space-y-5 disabled:opacity-50">

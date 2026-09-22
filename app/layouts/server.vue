@@ -26,8 +26,10 @@
             :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">ตั้งค่า</SidebarLink>
           <SidebarLink :to="`/servers/${id}/resources`" icon="📊"
             :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Resources</SidebarLink>
-          <SidebarLink :to="`/servers/${id}/mods`" icon="🧩"
+          <SidebarLink v-if="canInstallMods" :to="`/servers/${id}/mods`" icon="🧩"
             :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Mods</SidebarLink>
+          <SidebarLink v-if="canInstallPlugins" :to="`/servers/${id}/plugins`" icon="🔌"
+            :disabled="server?.status !== 'stopped'" disabled-tooltip="หยุดเซิร์ฟเวอร์ก่อน">Plugins</SidebarLink>
           <SidebarLink :to="`/servers/${id}/console`" icon="💻"
             :disabled="server?.status !== 'running'" disabled-tooltip="เซิร์ฟเวอร์ต้องทำงานอยู่">คอนโซล</SidebarLink>
           <SidebarLink :to="`/servers/${id}/files`" icon="📁">จัดการไฟล์</SidebarLink>
@@ -43,6 +45,12 @@ const auth  = useAuthStore()
 const store = useServersStore()
 const id     = computed(() => route.params.id as string)
 const server = computed(() => store.servers.find(s => s.id === id.value))
+const addonCapabilities: Record<string, Array<'mod' | 'plugin'>> = {
+  fabric: ['mod'], forge: ['mod'], neoforge: ['mod'], curseforge: ['mod'],
+  paper: ['plugin'], spigot: ['plugin'], bukkit: ['plugin'],
+}
+const canInstallMods = computed(() => addonCapabilities[server.value?.type || '']?.includes('mod'))
+const canInstallPlugins = computed(() => addonCapabilities[server.value?.type || '']?.includes('plugin'))
 // A reactive key means Nuxt refetches when navigating between server IDs,
 // while SSR renders the requested URL with its session cookie on first load.
 await useAsyncData(() => `server:${id.value}`, () => store.fetchServer(id.value), { watch: [id] })
