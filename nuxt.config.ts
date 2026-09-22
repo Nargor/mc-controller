@@ -61,6 +61,9 @@ export default defineNuxtConfig({
     mcDataPath:      process.env.MC_DATA_PATH     || './data/servers',
     // Path as seen by the Docker daemon. Set this when /data is a bind mount.
     mcDataHostPath:  process.env.MC_DATA_HOST_PATH || '',
+    // Address assigned to Minecraft containers' published ports. Leave it at
+    // 0.0.0.0 for all interfaces, or set a LAN/public IP to bind explicitly.
+    mcBindIp:        process.env.MC_BIND_IP       || '0.0.0.0',
     portRangeStart:  parseInt(process.env.PORT_RANGE_START  || '25565'),
     portRangeEnd:    parseInt(process.env.PORT_RANGE_END    || '25600'),
     curseforgeApiKey: process.env.CURSEFORGE_API_KEY || '',

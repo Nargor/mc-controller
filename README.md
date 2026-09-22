@@ -6,23 +6,52 @@
 
 1. คัดลอก `.env.example` เป็น `.env` แล้วกำหนด `JWT_SECRET` เป็นค่าสุ่มยาว ๆ
 2. ตั้ง `MC_DATA_HOST_PATH` เป็น **absolute path บน Docker host** เช่น `/opt/mc-controller/data` และสร้างไดเรกทอรีนั้น
-3. รัน `docker compose up -d --build`
-4. เปิด `http://host:3000` แล้วระบบจะพาไปสร้างผู้ดูแลคนแรกอัตโนมัติ
+3. ตั้ง `WEB_PORT`, `WEB_BIND_IP`, `MC_BIND_IP` และช่วง port Minecraft ตามต้องการ
+4. รัน `docker compose up -d --build`
+5. เปิด `http://host:WEB_PORT` แล้วระบบจะพาไปสร้างผู้ดูแลคนแรกอัตโนมัติ
 
-พอร์ต Minecraft ถูก publish เป็น `25565-25600` และค่าเริ่มต้นจะเลือกพอร์ตแรกที่ยังไม่ใช้. เปลี่ยนช่วงได้ด้วย `PORT_RANGE_START` และ `PORT_RANGE_END` แต่ต้องแก้ port range ใน compose ให้ตรงกันด้วย.
+พอร์ต Minecraft ถูก publish โดย **container Minecraft แต่ละตัว** ที่แอปสร้างผ่าน Docker socket โดยตรง ไม่ใช่ compose ของ controller จึงไม่มี port ชนกัน. ค่าเริ่มต้นเลือกพอร์ตแรกใน `25565-25600`; เปลี่ยนได้ด้วย `PORT_RANGE_START` และ `PORT_RANGE_END` โดยไม่ต้องแก้ compose เพิ่ม.
+
+### ตั้งค่า IP และ port
+
+| ตัวแปร | ค่าเริ่มต้น | ความหมาย |
+|---|---:|---|
+| `WEB_BIND_IP` | `0.0.0.0` | IP ที่เปิด web panel; ตั้งเป็น LAN IP เพื่อจำกัด interface |
+| `WEB_PORT` | `3000` | port web panel ฝั่ง host |
+| `MC_BIND_IP` | `0.0.0.0` | IP ที่ Minecraft server ทุกตัว bind บน Docker host |
+| `PORT_RANGE_START` / `PORT_RANGE_END` | `25565` / `25600` | ช่วง port ที่ระบบเลือกให้ Minecraft |
+
+ตัวอย่าง เปิด panel เฉพาะ LAN IP และให้ Minecraft รับจากทุก interface:
+
+```env
+WEB_BIND_IP=192.168.1.10
+WEB_PORT=8080
+MC_BIND_IP=0.0.0.0
+PORT_RANGE_START=25565
+PORT_RANGE_END=25600
+```
+
+> Firewall/security group ของ Windows, Linux หรือ cloud ยังต้องอนุญาต `WEB_PORT` และช่วง Minecraft เองด้วย.
 
 ## Dokploy และ Docker Hub
 
-สร้าง image เดียวจาก `Dockerfile`:
+สร้าง Docker Hub repository ชื่อ `mc-controller` ก่อน แล้ว build/push image เดียวจาก `Dockerfile`:
 
 ```sh
-docker build -t DOCKERHUB_USER/mc-controller:latest .
+docker login
+docker build -t DOCKERHUB_USER/mc-controller:1.0.0 .
+docker push DOCKERHUB_USER/mc-controller:1.0.0
+docker tag DOCKERHUB_USER/mc-controller:1.0.0 DOCKERHUB_USER/mc-controller:latest
 docker push DOCKERHUB_USER/mc-controller:latest
 ```
 
-ใน Dokploy ใช้ `docker-compose.prod.yml`, กำหนด `DOCKER_HUB_USERNAME`, `JWT_SECRET`, `MC_DATA_HOST_PATH` และ (ถ้าต้องใช้ modpack) `CURSEFORGE_API_KEY`. เพิ่ม bind mount `${MC_DATA_HOST_PATH}:/data` และ mount `/var/run/docker.sock:/var/run/docker.sock` ตามไฟล์ compose แล้ว publish `3000` สำหรับเว็บและ `25565-25600` สำหรับ Minecraft.
+สำหรับ server Linux/Dokploy ใช้ `docker-compose.prod.yml` และกำหนดอย่างน้อย `DOCKER_HUB_USERNAME`, `IMAGE_TAG`, `JWT_SECRET`, `MC_DATA_HOST_PATH`, `WEB_PORT`, `WEB_BIND_IP`, `MC_BIND_IP`; ถ้าใช้ CurseForge ให้เพิ่ม `CURSEFORGE_API_KEY`. ไฟล์ compose มี bind mount `${MC_DATA_HOST_PATH}:/data` และ `/var/run/docker.sock:/var/run/docker.sock` แล้ว. Publish web panel ผ่าน `WEB_PORT`; Minecraft containers จะ publish port ที่ถูกเลือกจากช่วงโดยอัตโนมัติ.
 
 > Docker socket ให้สิทธิ์สูงมากแก่แอปนี้: อย่าเปิดแผงควบคุมสู่สาธารณะโดยไม่มี HTTPS/การป้องกันเครือข่าย และใช้รหัสผ่านผู้ดูแลที่รัดกุม.
+
+> Windows Docker Desktop: `MC_DATA_HOST_PATH` ต้องเป็น absolute path ที่ Docker Desktop เข้าถึงได้ เช่น `D:/work/mc-controller/data`. สำหรับ Dokploy ให้ใช้ absolute path บน Linux host เช่น `/opt/mc-controller/data`.
+
+> ค่า Linux UID/GID ในหน้า Resources ส่งเป็น `UID`/`GID` ให้ Minecraft image (ค่าเริ่มต้น 1000/1000) เพื่อให้ image จัดสิทธิ์ไฟล์ใน `/data` ได้ตามปกติ.
 
 ## รันปกติโดยไม่ใช้ Docker
 

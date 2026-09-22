@@ -2,13 +2,15 @@ version: '3.9'
 
 services:
   mc-controller:
-    image: ${DOCKER_HUB_USERNAME}/mc-controller:latest
+    image: ${DOCKER_HUB_USERNAME:?Set DOCKER_HUB_USERNAME}/mc-controller:${IMAGE_TAG:-latest}
     environment:
       - NODE_ENV=production
       - NUXT_MC_RUNTIME=docker
       - DATABASE_PATH=/data/mc-controller.db
       - MC_DATA_PATH=/data/servers
       - MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH}
+      # Applied to each Minecraft container created by the controller.
+      - MC_BIND_IP=${MC_BIND_IP:-0.0.0.0}
       - PORT_RANGE_START=${PORT_RANGE_START:-25565}
       - PORT_RANGE_END=${PORT_RANGE_END:-25600}
       - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
@@ -19,8 +21,7 @@ services:
       - ${MC_DATA_HOST_PATH}:/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "3000:3000"
-      - "25565-25600:25565-25600"
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-3000}:3000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/setup/status"]

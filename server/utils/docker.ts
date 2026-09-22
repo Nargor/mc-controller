@@ -56,11 +56,15 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
   getServerDataPath(server.id)
   const hostDataPath = getServerHostDataPath(server.id)
   const config = useRuntimeConfig()
+  const minecraftBinding: Record<string, string> = { HostPort: server.port.toString() }
+  if (config.mcBindIp) minecraftBinding.HostIp = config.mcBindIp
 
   const envVars: string[] = [
     'EULA=TRUE',
     `TYPE=${TYPE_MAP[server.type as McServerType] || 'VANILLA'}`,
     `VERSION=${server.mc_version}`,
+    `UID=${Number.isInteger(Number(server.linux_uid)) ? Number(server.linux_uid) : 1000}`,
+    `GID=${Number.isInteger(Number(server.linux_gid)) ? Number(server.linux_gid) : 1000}`,
     `INIT_MEMORY=${Math.max(256, Number(server.initial_memory_mb) || 1024)}M`,
     `MEMORY=${server.memory_mb}M`,
     `MAX_PLAYERS=${server.max_players}`,
@@ -124,7 +128,7 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
     Env: envVars,
     ExposedPorts: { '25565/tcp': {}, '25575/tcp': {} },
     HostConfig: {
-      PortBindings: { '25565/tcp': [{ HostPort: server.port.toString() }] },
+      PortBindings: { '25565/tcp': [minecraftBinding] },
       Binds: [`${hostDataPath}:/data`],
       Memory: Math.max(256, Number(server.memory_mb) || 1024) * 1024 * 1024,
       MemoryReservation: Math.max(0, Number(server.memory_reservation_mb) || 0) * 1024 * 1024,
@@ -133,7 +137,6 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
       CpuPeriod: (Number(server.cpu_limit) || Number(server.cpu_reservation)) > 0 ? 100_000 : 0,
       CpuQuota: Number(server.cpu_limit) > 0 ? Math.round(Number(server.cpu_limit) * 100_000) : 0,
       CpuShares: Number(server.cpu_reservation) > 0 ? Math.max(2, Math.round(Number(server.cpu_reservation) * 1024)) : 0,
-      User: `${Number.isInteger(Number(server.linux_uid)) ? Number(server.linux_uid) : 1000}:${Number.isInteger(Number(server.linux_gid)) ? Number(server.linux_gid) : 1000}`,
       RestartPolicy: { Name: 'unless-stopped' },
     },
   })

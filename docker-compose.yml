@@ -12,8 +12,11 @@ services:
       - MC_DATA_PATH=/data/servers
       # Must be the same host path mounted at /data below: Docker resolves child mounts on the host.
       - MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH:-./data}
-      - PORT_RANGE_START=25565
-      - PORT_RANGE_END=25600
+      # Minecraft containers are created by this app and bind directly on the
+      # Docker host. Do not publish their range on this controller container.
+      - MC_BIND_IP=${MC_BIND_IP:-0.0.0.0}
+      - PORT_RANGE_START=${PORT_RANGE_START:-25565}
+      - PORT_RANGE_END=${PORT_RANGE_END:-25600}
       - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
       - JWT_SECRET=${JWT_SECRET:-dev_secret_change_me}
       - DOCKER_SOCKET=/var/run/docker.sock
@@ -21,8 +24,7 @@ services:
       - ${MC_DATA_HOST_PATH:-./data}:/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "3000:3000"
-      - "25565-25600:25565-25600"
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-3000}:3000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/setup/status"]
