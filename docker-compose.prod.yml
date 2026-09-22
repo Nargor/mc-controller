@@ -14,7 +14,6 @@ services:
       - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
       - JWT_SECRET=${JWT_SECRET}
       - DOCKER_SOCKET=/var/run/docker.sock
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
     volumes:
       - ${MC_DATA_HOST_PATH}:/data
       - /var/run/docker.sock:/var/run/docker.sock

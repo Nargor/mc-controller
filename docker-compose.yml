@@ -16,7 +16,7 @@ services:
       - PORT_RANGE_START=${PORT_RANGE_START:-25565}
       - PORT_RANGE_END=${PORT_RANGE_END:-25600}
       - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
-      - JWT_SECRET=${JWT_SECRET:-dev_secret_change_me}
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET to a long random value in .env}
       - DOCKER_SOCKET=/var/run/docker.sock
     volumes:
       - ${MC_DATA_HOST_PATH:?Set MC_DATA_HOST_PATH to an absolute Docker-host path in .env}:/data
