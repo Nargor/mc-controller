@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
 
 export type AddonKind = 'mod' | 'plugin'
@@ -60,6 +61,7 @@ async function modrinthJson(path: string): Promise<any> {
 }
 
 export async function searchModrinth(server: any, kind: AddonKind, query: string): Promise<any[]> {
+  if (query.length > 100) throw createError({ statusCode: 400, statusMessage: 'Search text is too long' })
   const params = new URLSearchParams({ query, limit: '24', index: 'relevance', facets: JSON.stringify([[`project_type:${kind}`]]) })
   const result = await modrinthJson(`/search?${params}`)
   return (result.hits || []).map((hit: any) => ({
@@ -69,6 +71,7 @@ export async function searchModrinth(server: any, kind: AddonKind, query: string
 }
 
 export async function getModrinthVersions(server: any, projectId: string): Promise<any[]> {
+  validateModrinthId(projectId, 'project')
   const params = new URLSearchParams({ game_versions: JSON.stringify([server.mc_version]) })
   const loader = loaderFor(server)
   if (loader) params.set('loaders', JSON.stringify([loader]))
@@ -82,17 +85,34 @@ export async function getModrinthVersions(server: any, projectId: string): Promi
 }
 
 export async function installModrinthAddon(server: any, kind: AddonKind, projectId: string, versionId: string): Promise<InstalledAddon> {
+  validateModrinthId(projectId, 'project')
+  validateModrinthId(versionId, 'version')
   const version = await modrinthJson(`/version/${encodeURIComponent(versionId)}`)
   if (version.project_id !== projectId) throw createError({ statusCode: 400, statusMessage: 'Selected version does not belong to this project' })
   const file = version.files?.find((item: any) => item.primary) || version.files?.[0]
   if (!file?.url || !file?.filename) throw createError({ statusCode: 400, statusMessage: 'Selected version has no downloadable file' })
   const directory = getAddonDirectory(server, kind)
   const fileName = basename(file.filename)
+  if (!/^[^\\/\0\r\n]{1,255}\.(jar|zip)$/i.test(fileName))
+    throw createError({ statusCode: 400, statusMessage: 'Modrinth returned an invalid addon file name' })
   const target = join(directory, fileName)
   if (existsSync(target)) throw createError({ statusCode: 409, statusMessage: `${fileName} is already installed` })
-  const response = await fetch(file.url)
+  let url: URL
+  try { url = new URL(file.url) } catch { throw createError({ statusCode: 502, statusMessage: 'Modrinth returned an invalid download URL' }) }
+  if (url.protocol !== 'https:') throw createError({ statusCode: 502, statusMessage: 'Addon download must use HTTPS' })
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) })
   if (!response.ok) throw createError({ statusCode: 502, statusMessage: `Unable to download ${fileName}` })
-  writeFileSync(target, Buffer.from(await response.arrayBuffer()))
+  const size = Number(response.headers.get('content-length') || 0)
+  if (size > 512 * 1024 * 1024) throw createError({ statusCode: 413, statusMessage: 'Addon is larger than 512 MB' })
+  const contents = Buffer.from(await response.arrayBuffer())
+  if (contents.length > 512 * 1024 * 1024) throw createError({ statusCode: 413, statusMessage: 'Addon is larger than 512 MB' })
+  const expectedHash = file.hashes?.sha512 || file.hashes?.sha1
+  if (expectedHash) {
+    const algorithm = file.hashes.sha512 ? 'sha512' : 'sha1'
+    if (createHash(algorithm).update(contents).digest('hex') !== expectedHash)
+      throw createError({ statusCode: 502, statusMessage: 'Addon checksum verification failed' })
+  }
+  writeFileSync(target, contents)
   const manifest = readManifest(directory)
   manifest[fileName] = { projectId, title: version.name, version: version.version_number, source: 'Modrinth' }
   saveManifest(directory, manifest)
@@ -109,4 +129,9 @@ export function deleteInstalledAddon(server: any, kind: AddonKind, requestedFile
   const manifest = readManifest(directory)
   delete manifest[file]
   saveManifest(directory, manifest)
+}
+
+function validateModrinthId(value: string, label: string): void {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(value))
+    throw createError({ statusCode: 400, statusMessage: `Invalid Modrinth ${label} ID` })
 }

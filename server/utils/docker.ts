@@ -1,6 +1,7 @@
 import Docker from 'dockerode'
 import { resolve, join, relative, sep } from 'path'
-import { existsSync, mkdirSync, readFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'fs'
+import { createHmac } from 'crypto'
 
 let _docker: Docker | null = null
 
@@ -8,11 +9,7 @@ export function getDocker(): Docker {
   if (!_docker) {
     const config = useRuntimeConfig()
     const socketPath = config.dockerSocket || process.env.DOCKER_SOCKET || '/var/run/docker.sock'
-    try {
-      _docker = new Docker({ socketPath })
-    } catch {
-      _docker = new Docker({ host: '127.0.0.1', port: 2375 })
-    }
+    _docker = new Docker({ socketPath })
   }
   return _docker
 }
@@ -24,11 +21,19 @@ export const docker = {
 }
 
 export function getServerDataPath(serverId: string): string {
+  assertServerId(serverId)
   const config = useRuntimeConfig()
   const base = config.mcDataPath || process.env.MC_DATA_PATH || './data/servers'
   const dir = resolve(join(base, serverId))
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  else if (lstatSync(dir).isSymbolicLink())
+    throw createError({ statusCode: 500, statusMessage: 'Server data directory must not be a symbolic link' })
   return dir
+}
+
+export function assertServerId(serverId: unknown): asserts serverId is string {
+  if (typeof serverId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(serverId))
+    throw createError({ statusCode: 400, statusMessage: 'Invalid server ID' })
 }
 
 /**
@@ -39,6 +44,7 @@ export function getServerDataPath(serverId: string): string {
  * /data mount and reuses its Docker-host source for Minecraft child containers.
  */
 export async function getServerHostDataPath(serverId: string): Promise<string> {
+  assertServerId(serverId)
   const config = useRuntimeConfig()
   const dataPath = resolve(config.mcDataPath || process.env.MC_DATA_PATH || './data/servers')
   const explicitHostRoot = config.mcDataHostPath || process.env.MC_DATA_HOST_PATH
@@ -103,6 +109,10 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
   getServerDataPath(server.id)
   const hostDataPath = await getServerHostDataPath(server.id)
   const config = useRuntimeConfig()
+  const controllerSecret = String(config.jwtSecret || '')
+  if (process.env.NODE_ENV === 'production' && (!controllerSecret || controllerSecret === 'dev_secret_change_me_in_prod'))
+    throw createError({ statusCode: 500, statusMessage: 'Set NUXT_JWT_SECRET to a long random value before starting a Docker server' })
+  const rconPassword = createHmac('sha256', controllerSecret || 'development-only-secret').update(server.id).digest('base64url')
   const minecraftBinding: Record<string, string> = { HostPort: server.port.toString() }
   if (config.mcBindIp) minecraftBinding.HostIp = config.mcBindIp
 
@@ -151,7 +161,7 @@ export async function createServerContainer(server: any): Promise<Docker.Contain
     `AUTOPAUSE_KNOCK_INTERFACE=${server.reconnect_interface || 'eth0'}`,
     `ENABLE_ROLLING_LOGS=${server.rolling_logs ? 'true' : 'false'}`,
     'ENABLE_RCON=true',
-    'RCON_PASSWORD=mccontroller',
+    `RCON_PASSWORD=${rconPassword}`,
     'RCON_PORT=25575',
   ]
 

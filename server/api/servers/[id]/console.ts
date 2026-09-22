@@ -1,5 +1,9 @@
 export default defineWebSocketHandler({
   async open(peer) {
+    if (!isSameOriginWebSocket(peer.request) || !await getWebSocketSessionUser(peer.request)) {
+      peer.close(1008, 'Unauthorized')
+      return
+    }
     const url = peer.request?.url || ''
     const match = url.match(/\/api\/servers\/([^/]+)\/console/)
     const id = match?.[1]

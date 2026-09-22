@@ -5,7 +5,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Server is not running' })
 
   const { command } = await readBody(event)
-  if (!command?.trim()) throw createError({ statusCode: 400, statusMessage: 'command is required' })
+  if (typeof command !== 'string' || !command.trim() || command.length > 2_048 || /[\0\r\n]/.test(command))
+    throw createError({ statusCode: 400, statusMessage: 'Command must be a single line of at most 2,048 characters' })
 
   if (useNativeRuntime()) {
     sendNativeCommand(id, command)

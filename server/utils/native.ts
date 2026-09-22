@@ -4,6 +4,10 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import AdmZip from 'adm-zip'
+import { safeFileName, safeServerPath } from './files'
+
+const MAX_DOWNLOADED_FILE_BYTES = 2 * 1024 * 1024 * 1024
+const MAX_EXTRACT_ENTRIES = 20_000
 
 type NativeInstance = { process: ChildProcess; output: EventEmitter; timestamps: boolean }
 const instances = new Map<string, NativeInstance>()
@@ -136,10 +140,10 @@ async function downloadPortableJava(major: number): Promise<string> {
   if (existing) return existing
 
   mkdirSync(root, { recursive: true })
-  const response = await fetch(`https://api.adoptium.net/v3/binary/latest/${major}/ga/windows/x64/jre/hotspot/normal/eclipse`)
+  const response = await fetch(`https://api.adoptium.net/v3/binary/latest/${major}/ga/windows/x64/jre/hotspot/normal/eclipse`, { signal: AbortSignal.timeout(120_000) })
   if (!response.ok) throw createError({ statusCode: 502, statusMessage: `Unable to download portable Java (${response.status})` })
   try {
-    new AdmZip(Buffer.from(await response.arrayBuffer())).extractAllTo(root, true)
+    extractZip(new AdmZip(Buffer.from(await response.arrayBuffer())), root)
   } catch {
     throw createError({ statusCode: 502, statusMessage: 'Downloaded portable Java archive could not be extracted' })
   }
@@ -345,7 +349,7 @@ async function downloadModrinthProject(entry: string, server: any, destination: 
   }
   const file = version.files?.find((item: any) => item.primary) || version.files?.[0]
   if (!file?.url) throw createError({ statusCode: 400, statusMessage: `Modrinth project ${project} has no downloadable file` })
-  await download(file.url, join(destination, file.filename || `${project}.jar`))
+  await download(file.url, join(destination, safeFileName(file.filename || `${project}.jar`)))
 
   const mode = server.modrinth_download_dependencies || 'none'
   if (mode !== 'none') {
@@ -382,7 +386,7 @@ async function downloadCurseForgeFiles(entries: string[], server: any, destinati
     if (!fileId) throw createError({ statusCode: 400, statusMessage: `CurseForge project ${project} has no compatible file` })
     const file = (await fetchJson(`https://api.curseforge.com/v1/mods/${mod.id}/files/${fileId}`, headers)).data
     if (!file?.downloadUrl) throw createError({ statusCode: 502, statusMessage: `CurseForge did not provide a download for ${project}` })
-    await download(file.downloadUrl, join(destination, file.fileName || `${mod.id}-${fileId}.jar`), headers)
+    await download(file.downloadUrl, join(destination, safeFileName(file.fileName || `${mod.id}-${fileId}.jar`)), headers)
   }
 }
 
@@ -413,7 +417,7 @@ async function downloadCurseForgeServerPack(server: any, dir: string, java: stri
     if (!url) throw createError({ statusCode: 502, statusMessage: 'CurseForge did not provide a download URL for this server pack' })
     const archive = join(dir, 'curseforge-serverpack.zip')
     await download(url, archive, headers)
-    try { new AdmZip(archive).extractAllTo(dir, true) }
+    try { extractZip(new AdmZip(archive), dir) }
     catch { throw createError({ statusCode: 502, statusMessage: 'CurseForge server pack could not be extracted' }) }
     writeFileSync(marker, '')
   }
@@ -456,6 +460,7 @@ function runJava(java: string, args: string[], cwd: string): Promise<void> {
 function findNamedFile(directory: string, name: string): string | null {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = join(directory, entry.name)
+    if (entry.isSymbolicLink()) continue
     if (entry.isFile() && entry.name.toLowerCase() === name) return target
     if (entry.isDirectory()) { const found = findNamedFile(target, name); if (found) return found }
   }
@@ -463,14 +468,40 @@ function findNamedFile(directory: string, name: string): string | null {
 }
 
 async function fetchJson(url: string, headers?: HeadersInit): Promise<any> {
-  const response = await fetch(url, { headers })
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) })
   if (!response.ok) throw createError({ statusCode: 502, statusMessage: `Unable to download server metadata (${response.status})` })
   return response.json()
 }
 
 async function download(url: string, target: string, headers?: HeadersInit): Promise<void> {
   mkdirSync(join(target, '..'), { recursive: true })
-  const response = await fetch(url, { headers })
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw createError({ statusCode: 502, statusMessage: 'Invalid download URL' }) }
+  if (parsed.protocol !== 'https:') throw createError({ statusCode: 502, statusMessage: 'Downloads must use HTTPS' })
+  const response = await fetch(parsed, { headers, signal: AbortSignal.timeout(120_000) })
   if (!response.ok) throw createError({ statusCode: 502, statusMessage: `Unable to download server file (${response.status})` })
-  writeFileSync(target, Buffer.from(await response.arrayBuffer()))
+  if (Number(response.headers.get('content-length') || 0) > MAX_DOWNLOADED_FILE_BYTES)
+    throw createError({ statusCode: 413, statusMessage: 'Downloaded file is larger than 2 GB' })
+  const contents = Buffer.from(await response.arrayBuffer())
+  if (contents.length > MAX_DOWNLOADED_FILE_BYTES)
+    throw createError({ statusCode: 413, statusMessage: 'Downloaded file is larger than 2 GB' })
+  writeFileSync(target, contents)
+}
+
+function extractZip(zip: AdmZip, destination: string): void {
+  const entries = zip.getEntries()
+  if (entries.length > MAX_EXTRACT_ENTRIES)
+    throw createError({ statusCode: 400, statusMessage: 'Archive contains too many files' })
+  const uncompressedBytes = entries.reduce((total, entry) => total + Math.max(0, Number((entry as any).header?.size) || 0), 0)
+  if (uncompressedBytes > MAX_DOWNLOADED_FILE_BYTES)
+    throw createError({ statusCode: 413, statusMessage: 'Archive expands to more than 2 GB' })
+  for (const entry of entries) {
+    if (!entry.entryName || entry.entryName.includes('\0')) continue
+    const target = safeServerPath(destination, entry.entryName, { allowRoot: true })
+    if (entry.isDirectory) mkdirSync(target, { recursive: true })
+    else {
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, entry.getData())
+    }
+  }
 }

@@ -1,5 +1,4 @@
 import { existsSync, rmSync } from 'fs'
-import { resolve, join } from 'path'
 import { safeServerPath } from '../../../../utils/files'
 
 export default defineEventHandler(async (event) => {
@@ -7,11 +6,11 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const base = getServerDataPath(id)
   const paths: string[] = Array.isArray(body.paths) ? body.paths : (body.path ? [body.path] : [])
-  for (const p of paths) {
-    try {
-      const target = safeServerPath(base, p)
-      if (existsSync(target)) rmSync(target, { recursive: true, force: true })
-    } catch {}
+  if (!paths.length || paths.length > 50) throw createError({ statusCode: 400, statusMessage: 'Select between 1 and 50 files or folders' })
+  const targets = paths.map(p => safeServerPath(base, p))
+  let deleted = 0
+  for (const target of targets) {
+    if (existsSync(target)) { rmSync(target, { recursive: true, force: true }); deleted++ }
   }
-  return { success: true, deleted: paths.length }
+  return { success: true, deleted }
 })
