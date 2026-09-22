@@ -39,9 +39,9 @@ PORT_RANGE_END=25600
 
 ```sh
 docker login
-docker build -t DOCKERHUB_USER/mc-controller:1.0.0 .
-docker push DOCKERHUB_USER/mc-controller:1.0.0
-docker tag DOCKERHUB_USER/mc-controller:1.0.0 DOCKERHUB_USER/mc-controller:latest
+docker build -t DOCKERHUB_USER/mc-controller:1.0.1 .
+docker push DOCKERHUB_USER/mc-controller:1.0.1
+docker tag DOCKERHUB_USER/mc-controller:1.0.1 DOCKERHUB_USER/mc-controller:latest
 docker push DOCKERHUB_USER/mc-controller:latest
 ```
 
@@ -52,6 +52,12 @@ docker push DOCKERHUB_USER/mc-controller:latest
 > Windows Docker Desktop: `MC_DATA_HOST_PATH` ต้องเป็น absolute path ที่ Docker Desktop เข้าถึงได้ เช่น `D:/work/mc-controller/data`. สำหรับ Dokploy ให้ใช้ absolute path บน Linux host เช่น `/opt/mc-controller/data`.
 
 > ค่า Linux UID/GID ในหน้า Resources ส่งเป็น `UID`/`GID` ให้ Minecraft image (ค่าเริ่มต้น 1000/1000) เพื่อให้ image จัดสิทธิ์ไฟล์ใน `/data` ได้ตามปกติ.
+
+### Dokploy official template
+
+ไฟล์พร้อมเสนอเข้า Dokploy อยู่ใน `docker/dokploy-template/` และใช้ Docker named volume จึงไม่ต้องกำหนด `MC_DATA_HOST_PATH` เอง. แอปจะอ่าน source ของ volume `/data` จาก Docker daemon แล้ว mount โฟลเดอร์ของ Minecraft server ให้ container ลูกโดยอัตโนมัติ. หลัง template ถูก merge ให้เลือก **MC Controller** จาก Templates ใน Dokploy, ตั้ง domain และ (หากต้องใช้) `CURSEFORGE_API_KEY`; Dokploy จะสร้าง `JWT_SECRET` ให้เอง.
+
+Minecraft server ที่ถูกสร้างจากหน้าเว็บยัง publish port ตรงบน Docker host ดังนั้นเปิด firewall/security group สำหรับช่วง `25565-25600` (หรือช่วงที่ตั้งไว้) ด้วย. Docker socket เป็นสิทธิ์ระดับสูง: จำกัดการเข้าถึง web panel และใช้ HTTPS/รหัสผ่านผู้ดูแลที่รัดกุม.
 
 ## รันปกติโดยไม่ใช้ Docker
 

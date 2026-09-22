@@ -6,18 +6,18 @@ services:
     environment:
       - NODE_ENV=production
       - NUXT_MC_RUNTIME=docker
-      - DATABASE_PATH=/data/mc-controller.db
-      - MC_DATA_PATH=/data/servers
+      - NUXT_DATABASE_PATH=/data/mc-controller.db
+      - NUXT_MC_DATA_PATH=/data/servers
       # Must be the same host path mounted at /data below: Docker resolves child mounts on the host.
-      - MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH:?Set MC_DATA_HOST_PATH to an absolute Docker-host path in .env}
+      - NUXT_MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH:?Set MC_DATA_HOST_PATH to an absolute Docker-host path in .env}
       # Minecraft containers are created by this app and bind directly on the
       # Docker host. Do not publish their range on this controller container.
-      - MC_BIND_IP=${MC_BIND_IP:-0.0.0.0}
-      - PORT_RANGE_START=${PORT_RANGE_START:-25565}
-      - PORT_RANGE_END=${PORT_RANGE_END:-25600}
-      - CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
-      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET to a long random value in .env}
-      - DOCKER_SOCKET=/var/run/docker.sock
+      - NUXT_MC_BIND_IP=${MC_BIND_IP:-0.0.0.0}
+      - NUXT_PORT_RANGE_START=${PORT_RANGE_START:-25565}
+      - NUXT_PORT_RANGE_END=${PORT_RANGE_END:-25600}
+      - NUXT_CURSEFORGE_API_KEY=${CURSEFORGE_API_KEY:-}
+      - NUXT_JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET to a long random value in .env}
+      - NUXT_DOCKER_SOCKET=/var/run/docker.sock
     volumes:
       - ${MC_DATA_HOST_PATH:?Set MC_DATA_HOST_PATH to an absolute Docker-host path in .env}:/data
       - /var/run/docker.sock:/var/run/docker.sock

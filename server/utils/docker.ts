@@ -1,6 +1,6 @@
 import Docker from 'dockerode'
-import { resolve, join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { resolve, join, relative, sep } from 'path'
+import { existsSync, mkdirSync, readFileSync } from 'fs'
 
 let _docker: Docker | null = null
 
@@ -31,11 +31,58 @@ export function getServerDataPath(serverId: string): string {
   return dir
 }
 
-/** The Docker daemon resolves bind sources on its host, not inside this app container. */
-export function getServerHostDataPath(serverId: string): string {
+/**
+ * Return a server directory as seen by the Docker daemon.
+ *
+ * A normal Docker Compose installation can provide MC_DATA_HOST_PATH. Dokploy
+ * templates use a named volume instead, so the controller inspects its own
+ * /data mount and reuses its Docker-host source for Minecraft child containers.
+ */
+export async function getServerHostDataPath(serverId: string): Promise<string> {
   const config = useRuntimeConfig()
-  const base = config.mcDataHostPath || config.mcDataPath || process.env.MC_DATA_PATH || './data/servers'
-  return resolve(join(base, serverId))
+  const dataPath = resolve(config.mcDataPath || process.env.MC_DATA_PATH || './data/servers')
+  const explicitHostRoot = config.mcDataHostPath || process.env.MC_DATA_HOST_PATH
+
+  // MC_DATA_HOST_PATH names the host directory mounted as /data, rather than
+  // the /data/servers directory itself. This keeps the controller database and
+  // every server directory in the same persistent host/volume root.
+  if (explicitHostRoot) return join(explicitHostRoot, 'servers', serverId)
+
+  if (config.mcRuntime !== 'docker') return resolve(join(dataPath, serverId))
+
+  // Docker gives every container its short ID as /etc/hostname. Some images
+  // do not also export HOSTNAME as an environment variable.
+  let ownContainerId = process.env.HOSTNAME
+  if (!ownContainerId) {
+    try { ownContainerId = readFileSync('/etc/hostname', 'utf8').trim() } catch {}
+  }
+  if (!ownContainerId) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Unable to locate the controller data volume. Set MC_DATA_HOST_PATH to the Docker-host directory mounted as /data.',
+    })
+  }
+
+  try {
+    const info = await getDocker().getContainer(ownContainerId).inspect()
+    const mount = (info.Mounts || []).find((item: any) => {
+      if (!item.Destination) return false
+      const destination = resolve(item.Destination)
+      return dataPath === destination || dataPath.startsWith(`${destination}${sep}`)
+    })
+    if (mount?.Source && mount?.Destination) {
+      const nestedPath = relative(resolve(mount.Destination), dataPath)
+      return resolve(join(mount.Source, nestedPath, serverId))
+    }
+  } catch {
+    // A friendly error below explains the manual fallback when inspection is
+    // unavailable (for example a non-standard Docker socket proxy).
+  }
+
+  throw createError({
+    statusCode: 500,
+    statusMessage: 'Unable to locate the controller data volume. Set MC_DATA_HOST_PATH to the Docker-host directory mounted as /data.',
+  })
 }
 
 type McServerType = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'paper' | 'spigot' | 'bukkit' | 'curseforge'
@@ -54,7 +101,7 @@ const TYPE_MAP: Record<McServerType, string> = {
 export async function createServerContainer(server: any): Promise<Docker.Container> {
   const d = getDocker()
   getServerDataPath(server.id)
-  const hostDataPath = getServerHostDataPath(server.id)
+  const hostDataPath = await getServerHostDataPath(server.id)
   const config = useRuntimeConfig()
   const minecraftBinding: Record<string, string> = { HostPort: server.port.toString() }
   if (config.mcBindIp) minecraftBinding.HostIp = config.mcBindIp

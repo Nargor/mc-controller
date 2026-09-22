@@ -11,5 +11,8 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000
 COPY --from=build /app/.output ./.output
+# Nitro traces the libsql JavaScript package but excludes its platform-specific
+# optional binding. Copy the binding selected by npm ci on Alpine explicitly.
+COPY --from=build /app/node_modules/@libsql/linux-x64-musl ./.output/server/node_modules/@libsql/linux-x64-musl
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
