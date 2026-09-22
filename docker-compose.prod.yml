@@ -5,6 +5,7 @@ services:
     image: ${DOCKER_HUB_USERNAME}/mc-controller:latest
     environment:
       - NODE_ENV=production
+      - NUXT_MC_RUNTIME=docker
       - DATABASE_PATH=/data/mc-controller.db
       - MC_DATA_PATH=/data/servers
       - MC_DATA_HOST_PATH=${MC_DATA_HOST_PATH}

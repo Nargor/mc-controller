@@ -1,11 +1,17 @@
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const server = await dbQueryOne<any>('SELECT * FROM servers WHERE id = ?', [id])
-  if (!server?.container_id || server.status !== 'running')
+  if (!server || server.status !== 'running')
     throw createError({ statusCode: 400, statusMessage: 'Server is not running' })
 
   const { command } = await readBody(event)
   if (!command?.trim()) throw createError({ statusCode: 400, statusMessage: 'command is required' })
+
+  if (useNativeRuntime()) {
+    sendNativeCommand(id, command)
+    return { success: true, command: command.trim(), output: '' }
+  }
+  if (!server.container_id) throw createError({ statusCode: 400, statusMessage: 'Server container not found' })
 
   const exec = await getDocker().getContainer(server.container_id).exec({
     AttachStdout: true, AttachStderr: true, Tty: false,

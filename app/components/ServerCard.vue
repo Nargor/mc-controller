@@ -1,5 +1,5 @@
 <template>
-  <NuxtLink :to="`/servers/${server.id}`"
+  <div
     class="block bg-dark-800 border border-dark-700 rounded-xl p-5 hover:border-dark-500 hover:bg-dark-750 transition-all group">
     <div class="flex items-start justify-between mb-4">
       <div class="flex items-center gap-3">
@@ -11,15 +11,19 @@
       </div>
       <ServerStatus :status="server.status" />
     </div>
-    <div class="flex items-center gap-4 text-xs text-dark-500">
+    <div class="flex items-center justify-between gap-3 text-xs text-dark-500">
+      <div class="flex items-center gap-4">
       <span>🔌 {{ server.port }}</span>
       <span>👥 {{ server.max_players }} max</span>
       <span>💾 {{ server.memory_mb }}MB</span>
+      </div>
+      <div class="flex gap-3"><NuxtLink :to="`/servers/${server.id}`" class="text-mc-green hover:underline">จัดการ</NuxtLink><button class="text-red-400 hover:text-red-300" @click="$emit('delete', server)">ลบ</button></div>
     </div>
-  </NuxtLink>
+  </div>
 </template>
 <script setup lang="ts">
 import type { Server } from '~/stores/servers'
 defineProps<{ server: Server }>()
+defineEmits<{ delete: [server: Server] }>()
 const LABELS: Record<string,string> = { vanilla:'Vanilla', fabric:'Fabric', forge:'Forge', neoforge:'NeoForge', paper:'Paper', spigot:'Spigot', bukkit:'Bukkit', curseforge:'CurseForge' }
 </script>

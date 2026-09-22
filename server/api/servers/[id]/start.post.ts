@@ -6,6 +6,11 @@ export default defineEventHandler(async (event) => {
 
   await dbExec("UPDATE servers SET status='starting' WHERE id=?", [id])
   try {
+    if (useNativeRuntime()) {
+      const pid = await startNativeServer(server)
+      await dbExec("UPDATE servers SET container_id=?, status='running' WHERE id=?", [`native:${pid || ''}`, id])
+      return { success: true, status: 'running', runtime: 'native' }
+    }
     let container
     if (server.container_id) {
       try {

@@ -4,12 +4,16 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const server = await dbQueryOne<any>('SELECT * FROM servers WHERE id = ?', [id])
   if (!server) throw createError({ statusCode: 404, statusMessage: 'Server not found' })
-  if (server.status === 'running')
-    throw createError({ statusCode: 400, statusMessage: 'Stop the server before deleting' })
 
-  // Remove Docker container
-  for (const ref of [server.container_id, `mc-${id}`].filter(Boolean)) {
-    try { await getDocker().getContainer(ref).remove({ force: true }) } catch {}
+  // Force removal stops a running container first. This makes deletion a single,
+  // deliberate action whether the server is stopped, starting, or running.
+  await dbExec("UPDATE servers SET status='stopping' WHERE id=?", [id])
+  if (useNativeRuntime()) {
+    await stopNativeServer(id)
+  } else {
+    for (const ref of [server.container_id, `mc-${id}`].filter(Boolean)) {
+      try { await getDocker().getContainer(ref).remove({ force: true }) } catch {}
+    }
   }
 
   const dataPath = getServerDataPath(id)

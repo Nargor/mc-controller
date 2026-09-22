@@ -66,6 +66,9 @@ export default defineNuxtConfig({
     curseforgeApiKey: process.env.CURSEFORGE_API_KEY || '',
     jwtSecret:       process.env.JWT_SECRET       || 'dev_secret_change_me_in_prod',
     dockerSocket:    process.env.DOCKER_SOCKET    || '/var/run/docker.sock',
+    // "native" runs Java directly (the default for npm run dev); "docker" is
+    // the deployment default. Override explicitly with MC_RUNTIME if needed.
+    mcRuntime:       process.env.NUXT_MC_RUNTIME || process.env.MC_RUNTIME || (process.env.NODE_ENV === 'production' ? 'docker' : 'native'),
     // Public (accessible on client — nothing sensitive)
     public: {},
   },

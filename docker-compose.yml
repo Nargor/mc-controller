@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
+      - NUXT_MC_RUNTIME=docker
       - DATABASE_PATH=/data/mc-controller.db
       - MC_DATA_PATH=/data/servers
       # Must be the same host path mounted at /data below: Docker resolves child mounts on the host.

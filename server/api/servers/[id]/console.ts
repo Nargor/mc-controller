@@ -5,6 +5,13 @@ export default defineWebSocketHandler({
     const id = match?.[1]
     if (!id) { peer.close(1008, 'Invalid ID'); return }
 
+    if (useNativeRuntime()) {
+      const cleanup = subscribeNativeLogs(id, (line) => peer.send(JSON.stringify({ type: 'log', data: line })))
+      if (!cleanup) { peer.send(JSON.stringify({ type: 'error', data: 'Server is not running' })); peer.close(); return }
+      ;(peer as any)._cleanup = cleanup
+      return
+    }
+
     const server = await dbQueryOne<any>('SELECT container_id FROM servers WHERE id = ?', [id])
     if (!server?.container_id) {
       peer.send(JSON.stringify({ type: 'error', data: 'Server not started' }))

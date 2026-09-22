@@ -33,7 +33,9 @@ npm run dev
 
 จากนั้นเปิด `http://localhost:3000` ได้เลย. SQLite จะสร้างที่ `./data/mc-controller.db` และการเปิดเว็บ, สร้างผู้ใช้, ดู/แก้ไขรายการเซิร์ฟเวอร์ และจัดการไฟล์ ไม่ต้องมี Docker.
 
-Docker จำเป็นเฉพาะปุ่ม **เริ่ม/หยุด/รีสตาร์ต Minecraft server** เพราะระบบใช้ Docker เพื่อแยกแต่ละ Minecraft instance และ publish พอร์ตได้อย่างปลอดภัย. หากต้องการรัน Minecraft แบบ Java process โดยไม่ใช้ Docker จะต้องใช้ backend runner คนละแบบ.
+บน Windows ตอนกด **เริ่ม** ระบบจะตรวจ Java class version จากไฟล์ Minecraft ของเวอร์ชันที่เลือก แล้วดาวน์โหลด Temurin JRE major ที่ต้องใช้ (เช่น Java 21 หรือ 25) แบบ portable ไปที่ `data/bin/temurin-jre-<version>` โดยอัตโนมัติ — ไม่ติดตั้ง Java ลงเครื่องและไม่ต้องมี Docker. จากนั้น Minecraft จะทำงานเป็น Java process บนเครื่องโดยตรง. CurseForge จะดาวน์โหลด server pack ผ่าน `CURSEFORGE_API_KEY`; modpack ที่ไม่มี server pack จะไม่สามารถเปิดแบบ server ได้.
+
+ใน Docker/Dokploy compose กำหนด `NUXT_MC_RUNTIME=docker` ไว้แล้ว. สำหรับ local `npm run dev` ใช้ native launcher โดยอัตโนมัติ. ตั้ง `MC_RUNTIME=native` ได้เมื่อต้องการบังคับ native runtime และ `NUXT_MC_RUNTIME` ใช้สำหรับ override runtime config ของ Nuxt ใน deployment.
 
 ## File manager
 
